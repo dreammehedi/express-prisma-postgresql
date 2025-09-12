@@ -10,11 +10,15 @@ import decrypt from "../../helper/decrypt.js";
 import { sendEmail } from "../../helper/sendEmail.js";
 import { prisma } from "../../lib/prisma.js";
 import { createError } from "../../utils/error.js";
+import { sendVerificationEmail } from "../../utils/mailer.js";
+
+const CLIENT_URL = process.env.FRONTEND_LINK;
 
 export const registerUser = async (req, res) => {
   try {
     const { email, username, password } = req.body;
 
+    // Validate required fields
     const missingFields = [];
     if (!email) missingFields.push("Email");
     if (!username) missingFields.push("Username");
@@ -27,105 +31,71 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    const globalSettings = await prisma.globalSettings.findFirst();
-
-    if (!globalSettings) {
-      return res.status(500).json({
-        success: false,
-        message: "Global settings not found. Please configure system settings.",
-      });
-    }
-    if (!globalSettings.allowUserRegistration) {
-      return res.status(403).json({
-        success: false,
-        message:
-          "User registration is currently disabled by the system administrator.",
-      });
-    }
-    if (!password || password.length < globalSettings.passwordMinLength) {
+    if (password.length < 8) {
       return res.status(400).json({
         success: false,
-        message: `Password must be at least ${globalSettings.passwordMinLength} characters long.`,
+        message: "Password must be at least 8 characters long.",
       });
     }
 
     // Check for existing user
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ email }],
-      },
-    });
-
+    const existingUser = await prisma.user.findFirst({ where: { email } });
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: "User already registered with this email or username.",
+        message: "User already registered with this email.",
       });
     }
 
     const hashedPassword = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
 
+    // Generate email verification token
+    const emailToken = crypto.randomBytes(32).toString("hex");
+    const emailTokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Create new user (status pending)
     const newUser = await prisma.user.create({
       data: {
         email,
         username,
         password: hashedPassword,
         role: "user",
-        status: "active",
+        status: "pending",
+        emailVerificationToken: emailToken,
+        emailVerificationExpires: emailTokenExpiry,
         avatar: "",
         avatarPublicId: "",
-        resetCode: "",
-        resetCodeExpiration: new Date(),
-        isTwoFactorEnabled: globalSettings?.requireTwoFactorAuth,
       },
     });
 
-    const deviceInfo = `${req.headers["user-agent"]} | IP: ${req.ip}`;
-    const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    // Send verification email
+    await sendVerificationEmail(newUser.email, emailToken, CLIENT_URL);
 
-    // Step 1: Create session
-    const session = await prisma.session.create({
+    // Create session (temporary token)
+    const deviceInfo = `${req.headers["user-agent"]} | IP: ${req.ip}`;
+    await prisma.session.create({
       data: {
         userId: newUser.id,
         token: "temp",
         deviceInfo,
-        expiresAt,
+        expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
       },
-    });
-
-    // Step 2: Generate JWT with session ID
-    const token = jwt.sign(
-      {
-        userId: newUser.id,
-        email: newUser.email,
-        sessionId: session.id,
-        token: newUser.token,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "3d" }
-    );
-
-    // Step 3: Update session with token
-    await prisma.session.update({
-      where: { id: session.id },
-      data: { token },
     });
 
     res.status(201).json({
       success: true,
-      message: "User registered successfully.",
+      message:
+        "User registered successfully. Please check your email to verify your account.",
       payload: {
         _id: newUser.id,
         email: newUser.email,
         username: newUser.username,
         role: newUser.role,
         status: newUser.status,
-        token,
-        createdAt: newUser.createdAt,
-        isTwoFactorEnabled: newUser.isTwoFactorEnabled,
       },
     });
   } catch (error) {
+    console.error("Register Error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "An error occurred during registration.",
@@ -136,32 +106,37 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    // Validate input
     if (!email || !password)
       return res
         .status(400)
         .json({ message: "Email and password are required." });
 
+    // Find user
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(404).json({ message: "User not found." });
 
+    // Ensure email is verified
     if (user.status !== "active")
       return res.status(403).json({
-        message: `Your Ultra E-commerce account has been ${user.status} by an administrator. If you believe this was a mistake, please contact support.`,
+        message:
+          "Your email is not verified. Please check your inbox and verify your email before logging in.",
       });
 
+    // Check password
     const passwordMatch = await bcrypt.compare(password, user.password);
-
     if (!passwordMatch)
       return res.status(401).json({ message: "Invalid email or password." });
 
-    // 2FA
+    // Handle 2FA if enabled
     if (user.isTwoFactorEnabled) {
       const otp = crypto.randomInt(100000, 999999).toString();
       await prisma.user.update({
         where: { id: user.id },
         data: {
           twoFactorTempToken: otp,
-          twoFactorTempExp: new Date(Date.now() + 5 * 60 * 1000),
+          twoFactorTempExp: new Date(Date.now() + 5 * 60 * 1000), // 5 min expiry
         },
       });
 
@@ -175,20 +150,18 @@ export const loginUser = async (req, res) => {
       });
     }
 
+    // Create session
     const deviceInfo = `${req.headers["user-agent"]} | IP: ${req.ip}`;
-    const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
-
-    // Step 1: Create session
     const session = await prisma.session.create({
       data: {
         userId: user.id,
         token: "temp",
         deviceInfo,
-        expiresAt,
+        expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
       },
     });
 
-    // Step 2: Generate token with sessionId
+    // Generate JWT
     const jwtToken = jwt.sign(
       {
         userId: user.id,
@@ -200,13 +173,22 @@ export const loginUser = async (req, res) => {
       { expiresIn: "3d" }
     );
 
-    // Step 3: Update session with real token
+    // Update session with real token
     await prisma.session.update({
       where: { id: session.id },
       data: { token: jwtToken },
     });
 
-    const { id, username, role, status, createdAt, isTwoFactorEnabled } = user;
+    // Return user info
+    const {
+      id,
+      username,
+      role,
+      status,
+      createdAt,
+      isTwoFactorEnabled,
+      avatar,
+    } = user;
 
     res.status(200).json({
       success: true,
@@ -220,12 +202,72 @@ export const loginUser = async (req, res) => {
         createdAt,
         isTwoFactorEnabled,
         token: jwtToken,
+        avatar,
       },
     });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: error.message || "Server error during login." });
+    console.error("Login Error:", error);
+    res.status(500).json({
+      message: error.message || "Server error during login.",
+    });
+  }
+};
+
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.query;
+
+    if (!token) return res.status(400).send("Invalid token.");
+
+    const user = await prisma.user.findFirst({
+      where: {
+        emailVerificationToken: token,
+        emailVerificationExpires: { gt: new Date() },
+      },
+    });
+
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    // Activate user and remove verification token
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        status: "active",
+        emailVerificationToken: null,
+        emailVerificationExpires: null,
+      },
+    });
+
+    // Generate JWT token
+    const jwtToken = jwt.sign(
+      { userId: updatedUser.id, email: updatedUser.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "3d" }
+    );
+
+    // Update session with token
+    const session = await prisma.session.findFirst({
+      where: { userId: updatedUser.id },
+    });
+
+    if (session) {
+      await prisma.session.update({
+        where: { id: session.id },
+        data: { token: jwtToken },
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Email verified successfully. You can now log in.`,
+      token: jwtToken,
+    });
+  } catch (error) {
+    console.error("Email verification error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "An error occurred during email verification.",
+    });
   }
 };
 
@@ -264,6 +306,7 @@ export const logout = async (req, res) => {
       message: "Logged out successfully and session deleted.",
     });
   } catch (error) {
+    console.error("Logout Error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Logout failed.",
@@ -271,66 +314,95 @@ export const logout = async (req, res) => {
   }
 };
 
-async function sendOtpEmail(email, otp) {
-  // 1. Fetch all configurations
-  const [emailConfig, siteConfig, contactInfo] = await Promise.all([
-    prisma.emailConfiguration.findFirst(),
-    prisma.siteConfiguration.findFirst(),
-    prisma.contactInformation.findFirst(),
-  ]);
-  // 2. Validate required configs
-  if (!emailConfig) throw new Error("Email configuration not found.");
-  if (!siteConfig) throw new Error("Site configuration not found.");
-  if (!contactInfo) throw new Error("Contact information not found.");
+export const sendResetCode = async (email, code) => {
+  const emailConfig = await prisma.emailConfiguration.findFirst();
 
-  // 3. Decrypt email password
+  if (!emailConfig) {
+    throw new Error("Email configuration not found.");
+  }
+
   const decryptedPassword = decrypt(emailConfig.emailPassword);
-  if (!decryptedPassword) throw new Error("Failed to decrypt email password");
+  if (!decryptedPassword) {
+    throw new Error("Failed to decrypt email password");
+  }
 
-  // 4. Prepare transporter
   const transporter = nodemailer.createTransport({
-    service: "Gmail",
+    service: emailConfig.emailHost || "smtp.gmail.com",
     auth: {
       user: emailConfig.emailAddress,
       pass: decryptedPassword,
     },
+    tls: {
+      rejectUnauthorized: false, // 👉 SSL মিসম্যাচ ইগনোর করবে
+    },
   });
 
-  // 5. Build HTML template with dynamic data
+  const mailOptions = {
+    from: emailConfig.emailUserName,
+    to: email,
+    subject: "Your Password Reset Code",
+    html: `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #4C924D;">Reset Your Password</h2>
+      <p>Hello,</p>
+      <p>We received a request to reset your password. Use the code below to proceed:</p>
+      <div style="font-size: 24px; font-weight: bold; margin: 20px 0; color: #333; text-align: center;">
+        ${code}
+      </div>
+      <p>This code will expire in 10 minutes. If you didn't request a password reset, please ignore this email.</p>
+      <p>Thanks,<br>The AksumBase Team</p>
+    </div>
+  `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    throw new Error(`Could not send reset code email.`);
+  }
+};
+
+async function sendOtpEmail(email, otp) {
+  const emailConfig = await prisma.emailConfiguration.findFirst();
+
+  if (!emailConfig) {
+    throw new Error("Email configuration not found.");
+  }
+
+  const decryptedPassword = decrypt(emailConfig.emailPassword);
+  if (!decryptedPassword) {
+    throw new Error("Failed to decrypt email password");
+  }
+
   const mailOptions = {
     from: emailConfig.emailUserName,
     to: email,
     subject: "Your Login OTP Code",
     text: `Your one-time login code is: ${otp}. It will expire in 5 minutes.`,
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-        <div style="text-align: center;">
-          <img src="${siteConfig.logo}" alt="${
-      siteConfig.name
-    } Logo" style="height: 50px; margin-bottom: 10px;" />
-          <h2 style="color: #4C924D;">${siteConfig.name} - OTP Verification</h2>
-        </div>
-        <p>Hello,</p>
-        <p>Your one-time login code is:</p>
-        <div style="font-size: 24px; font-weight: bold; margin: 20px 0; color: #333; text-align: center;">
-          ${otp}
-        </div>
-        <p>This code will expire in 5 minutes. If you didn’t request this, please ignore this email.</p>
-        <hr style="margin: 30px 0;" />
-        <div style="font-size: 14px; color: #555;">
-          <p><strong>Contact:</strong></p>
-          <p>📞 ${contactInfo.phone}</p>
-          <p>📧 ${contactInfo.email}</p>
-          <p>📍 ${contactInfo.address}</p>
-        </div>
-        <p style="font-size: 12px; color: #999; margin-top: 20px; text-align: center;">
-          &copy; ${new Date().getFullYear()} ${siteConfig.copyRights.trim()}
-        </p>
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+      <h2 style="color: #4C924D;">Your Login Verification Code</h2>
+      <p>Hello,</p>
+      <p>Your one-time login code is:</p>
+      <div style="font-size: 24px; font-weight: bold; margin: 20px 0; color: #333; text-align: center;">
+        ${otp}
       </div>
-    `,
+      <p>This code will expire in 5 minutes. If you didn’t request this, please ignore this email.</p>
+      <p>Thanks,<br>The AksumBase Team</p>
+    </div>
+  `,
   };
 
-  // 6. Send email
+  const transporter = nodemailer.createTransport({
+    service: emailConfig.emailHost || "smtp.gmail.com",
+    auth: {
+      user: emailConfig.emailAddress,
+      pass: decryptedPassword,
+    },
+    tls: {
+      rejectUnauthorized: false, // 👉 SSL মিসম্যাচ ইগনোর করবে
+    },
+  });
   await transporter.sendMail(mailOptions);
 }
 
@@ -338,7 +410,7 @@ export const forgotPassword = async (req, res) => {
   const { email } = req.body;
 
   try {
-    // 1. Find user by email
+    // Find user by email
     const user = await prisma.user.findUnique({
       where: { email },
     });
@@ -350,11 +422,11 @@ export const forgotPassword = async (req, res) => {
       });
     }
 
-    // 2. Generate 6-digit reset code and expiry
+    // Generate a 6-digit code
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const resetCodeExpiration = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    const resetCodeExpiration = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // 3. Update user record
+    // Update user with reset code and expiration
     await prisma.user.update({
       where: { email },
       data: {
@@ -363,29 +435,15 @@ export const forgotPassword = async (req, res) => {
       },
     });
 
-    // 4. Build HTML message
-    const html = `
-      <p>Hi ${user.username || "there"},</p>
-      <p>You requested to reset your password. Use the code below to continue:</p>
-      <div style="font-size: 24px; font-weight: bold; margin: 20px 0; color: #333; text-align: center;">
-        ${resetCode}
-      </div>
-      <p>This code is valid for 10 minutes.</p>
-      <p>If you didn’t request this, please ignore this email.</p>
-    `;
-
-    // 5. Send the email using sendEmail util
-    await sendEmail({
-      to: email,
-      subject: "Password Reset Code",
-      html,
-    });
+    // Send reset code via email
+    await sendResetCode(email, resetCode);
 
     return res.status(200).json({
       success: true,
       message: "Reset code sent to your email.",
     });
   } catch (error) {
+    console.error("Forgot Password Error:", error);
     return res.status(500).json({
       success: false,
       message:
@@ -468,6 +526,7 @@ export const resetPassword = async (req, res) => {
       message: "Password reset successfully.",
     });
   } catch (error) {
+    console.error("Reset password error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "An error occurred during password reset.",
@@ -477,14 +536,8 @@ export const resetPassword = async (req, res) => {
 
 export const updateProfile = async (req, res) => {
   try {
-    const {
-      isEmailNotificationEnabled,
-      isOrderNotificationEnabled,
-      isStockAlertEnabled,
-      isSystemAlertEnabled,
-      ...otherFields
-    } = req.body;
-    const email = req.email;
+    const { email, isNotificationEnabled, ...otherFields } = req.body;
+
     if (!email) {
       return res.status(400).json({
         success: false,
@@ -503,24 +556,9 @@ export const updateProfile = async (req, res) => {
 
     const updatedFields = {
       ...otherFields,
-      ...(typeof isEmailNotificationEnabled !== "undefined" && {
-        isEmailNotificationEnabled:
-          isEmailNotificationEnabled === true ||
-          isEmailNotificationEnabled === "true",
-      }),
-      ...(typeof isOrderNotificationEnabled !== "undefined" && {
-        isOrderNotificationEnabled:
-          isOrderNotificationEnabled === true ||
-          isOrderNotificationEnabled === "true",
-      }),
-      ...(typeof isStockAlertEnabled !== "undefined" && {
-        isStockAlertEnabled:
-          isStockAlertEnabled === true || isStockAlertEnabled === "true",
-      }),
-
-      ...(typeof isSystemAlertEnabled !== "undefined" && {
-        isSystemAlertEnabled:
-          isSystemAlertEnabled === true || isSystemAlertEnabled === "true",
+      ...(typeof isNotificationEnabled !== "undefined" && {
+        isNotificationEnabled:
+          isNotificationEnabled === true || isNotificationEnabled === "true",
       }),
     };
 
@@ -562,8 +600,7 @@ export const updateProfile = async (req, res) => {
 
 export const changePassword = async (req, res) => {
   try {
-    const { oldPassword, newPassword, passwordConfirmation } = req.body;
-    const email = req.email;
+    const { oldPassword, newPassword, passwordConfirmation, email } = req.body;
 
     // Validate input
     if (!email) {
@@ -641,7 +678,7 @@ export const changePassword = async (req, res) => {
 
 export const googleLogin = async (req, res) => {
   try {
-    // Email and role are available on req.user from passport
+    const { platform } = req.query;
     const { email, role = "user", id, username, status } = req.user;
 
     if (!email) {
@@ -653,7 +690,6 @@ export const googleLogin = async (req, res) => {
     const deviceInfo = `${req.headers["user-agent"]} | IP: ${req.ip}`;
     const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
-    // Step 1: Create session
     const session = await prisma.session.create({
       data: {
         userId: id,
@@ -664,28 +700,31 @@ export const googleLogin = async (req, res) => {
     });
 
     const token = jwt.sign(
-      {
-        userId: id,
-        email: email,
-        sessionId: session.id,
-        role: role,
-      },
+      { userId: id, email, sessionId: session.id, role },
       process.env.JWT_SECRET,
-      {
-        expiresIn: "3d",
-      }
+      { expiresIn: "3d" }
     );
 
-    // Step 3: Update session with real token
     await prisma.session.update({
       where: { id: session.id },
       data: { token },
     });
 
+    // Redirect URLs
     const frontendURL = `${process.env.FRONTEND_LINK}/auth/google/callback?token=${token}&role=${role}&id=${id}&username=${username}&status=${status}&email=${email}`;
-    res.redirect(frontendURL);
+
+    // For mobile app, use deep linking scheme:
+    const appURL = `${process.env.APP_LINK}://google-callback?token=${token}&role=${role}&id=${id}&username=${username}&status=${status}&email=${email}`;
+
+    res.redirect(platform === "app" ? appURL : frontendURL);
   } catch (error) {
-    res.redirect(`${process.env.FRONTEND_LINK}/login?error=login_failed`);
+    console.error("Google login error:", error);
+    const { platform } = req.params;
+    if (platform === "app") {
+      res.redirect(`${process.env.APP_LINK}://signin?error=login_failed`);
+    } else {
+      res.redirect(`${process.env.FRONTEND_LINK}/login?error=login_failed`);
+    }
   }
 };
 
@@ -778,6 +817,7 @@ export const verify2FA = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("2FA Verify Error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Server error during 2FA verification.",
@@ -814,7 +854,7 @@ export const remove2FA = async (req, res) => {
   if (!user) return res.status(404).json({ message: "User not found." });
 
   const secret = speakeasy.generateSecret({
-    name: `Ultra E-commerce (${user.email})`,
+    name: `Aksumbase (${user.email})`,
   });
 
   await prisma.user.update({
@@ -830,8 +870,10 @@ export const remove2FA = async (req, res) => {
 };
 
 export const getUserProfile = async (req, res, next) => {
-  const email = req.email;
+  const { email } = req.params; // ✅ destructure email properly
   const token = req.token;
+
+  console.log(token, "token");
 
   if (!email) {
     return res.status(400).json({ message: "Email not found." });
@@ -882,6 +924,7 @@ export const getUserProfile = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Error fetching user profile:", error);
     res.status(500).json({
       success: false,
       message:
@@ -948,7 +991,7 @@ export const toggleUserStatus = async (req, res) => {
     // Send styled email notification
     await sendEmail({
       to: targetUser.email,
-      subject: `Your Ultra E-commerce Account Has Been ${
+      subject: `Your AksumBase Account Has Been ${
         status === "inactive" ? "In-Active" : "Activated"
       }`,
       html: `
@@ -959,14 +1002,14 @@ export const toggleUserStatus = async (req, res) => {
               targetUser.username
             },</p>
             <p style="font-size: 15px; color: #333;">
-              Your Ultra E-commerce account has been <strong style="text-transform: uppercase;">${status}</strong> by an administrator.
+              Your AksumBase account has been <strong style="text-transform: uppercase;">${status}</strong> by an administrator.
             </p>
             ${
               status === "inactive"
                 ? `<p style="font-size: 15px; color: #333;">If you believe this was a mistake, please contact support.</p>`
                 : `<p style="font-size: 15px; color: #333;">You may now log in and continue using your account as usual.</p>`
             }
-            <p style="font-size: 15px; color: #333;">Thank you,<br><strong>The Ultra E-commerce Team</strong></p>
+            <p style="font-size: 15px; color: #333;">Thank you,<br><strong>The AksumBase Team</strong></p>
           </div>
         </div>
       `,
@@ -977,8 +1020,7 @@ export const toggleUserStatus = async (req, res) => {
       user: updatedUser,
     });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ error: err?.message || "Something went wrong!" });
+    console.error("Status update error:", err);
+    return res.status(500).json({ error: "Something went wrong!" });
   }
 };

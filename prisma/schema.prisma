@@ -45,39 +45,45 @@ id                         String    @id @default(uuid())
   createdAt  DateTime @default(now())
 }
 
-
 // users
 model User {
 id                         String    @id @default(uuid())
-  username                   String
-  email                      String    @unique
-  password                   String
-  avatar                     String?
-  avatarPublicId             String?
-  phone                      String?
-  bio                        String?
-  address                    String?
-  city                       String?
-  state                      String?
-  zipCode                    String?
-  role                       String    @default("user")
-  isAdmin                    Boolean   @default(false)
-  status                     Status    @default(pending)
-  resetCode                  String?
-  resetCodeExpiration        DateTime? @default(now())
-  isEmailNotificationEnabled Boolean   @default(true)
-  isOrderNotificationEnabled Boolean   @default(true)
-  isStockAlertEnabled        Boolean   @default(true)
-  isSystemAlertEnabled       Boolean   @default(true)
-  isTwoFactorEnabled         Boolean   @default(false)
-  twoFactorTempToken         String?
-  twoFactorTempExp           DateTime?
+  username              String
+  email                 String    @unique
+  password              String
+  avatar                String?
+  avatarPublicId        String?
+  phone                 String?
+  bio                   String?
+  address               String?
+  city                  String?
+  state                 String?
+  zipCode               String?
+  previousRole          String?
+  role                  String    @default("user")
+  isAdmin               Boolean   @default(false)
+  status                Status    @default(pending)
+  resetCode             String?
+  resetCodeExpiration   DateTime? @default(now())
+  emailVerificationToken String?
+  emailVerificationExpires DateTime?
+  flagged               Boolean?  @default(false)
+  flagReason            String?
+  isNotificationEnabled Boolean   @default(true)
+  isTwoFactorEnabled    Boolean   @default(false)
+  twoFactorTempToken    String?
+  twoFactorTempExp      DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  // newsletter unsubscribe
+  unSubscribeNewsletterIds String[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  reputationScore   Int      @default(0)
+  reputationHistory Json?
 
   // Relations
-  sessions  Session[]
+  sessions                   Session[]
 }
 
 // user status
