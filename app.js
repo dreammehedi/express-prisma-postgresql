@@ -23,9 +23,6 @@ dotenv.config();
 // Validate required environment variables
 const requiredEnvVars = [
   "DATABASE_URL",
-  "CLOUDINARY_CLOUD_NAME",
-  "CLOUDINARY_API_KEY",
-  "CLOUDINARY_API_SECRET",
   "JWT_SECRET",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
@@ -35,6 +32,14 @@ const requiredEnvVars = [
   "FRONTEND_LINK",
   "SERVER_LINK",
 ];
+
+if (process.env.FILE_STORE_TYPE === "cloudinary") {
+  requiredEnvVars.push(
+    "CLOUDINARY_CLOUD_NAME",
+    "CLOUDINARY_API_KEY",
+    "CLOUDINARY_API_SECRET"
+  );
+}
 
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
