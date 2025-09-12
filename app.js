@@ -107,7 +107,7 @@ app.use(formatJsonResponse);
 app.get("/", (req, res) => {
   res.render("index", {
     title: "Home",
-    message: "Ultra E-commerce Server Running...",
+    message: "Server Running...",
   });
 });
 
