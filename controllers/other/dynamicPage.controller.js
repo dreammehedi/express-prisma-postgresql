@@ -18,7 +18,6 @@ export const getDynamicPageName = async (req, res) => {
     });
     res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error("Get page error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch page" });
   }
 };
@@ -34,7 +33,6 @@ export const getDynamicPage = async (req, res) => {
     });
     res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error("Get page error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch page" });
   }
 };
@@ -51,7 +49,6 @@ export const getSingleDynamicPage = async (req, res) => {
     });
     res.status(200).json({ success: true, data });
   } catch (error) {
-    console.error("Get page error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch page" });
   }
 };
@@ -109,7 +106,6 @@ export const dynamicPage = async (req, res) => {
       totalBulkDeleteData,
     });
   } catch (error) {
-    console.error("Get page error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch page" });
   }
 };
@@ -164,7 +160,6 @@ export const deleteDynamicPage = async (req, res) => {
       totalBulkDeleteData,
     });
   } catch (error) {
-    console.error("Get page error:", error);
     res.status(500).json({ success: false, message: "Failed to fetch page" });
   }
 };
@@ -232,7 +227,6 @@ export const createDynamicPage = async (req, res) => {
 
     res.status(201).json({ success: true, data: newData });
   } catch (error) {
-    console.error("Create page error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to create page",
@@ -312,7 +306,6 @@ export const updateDynamicPage = async (req, res) => {
 
     res.status(200).json({ success: true, data: updatedPage });
   } catch (error) {
-    console.error("Update page error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to update page",

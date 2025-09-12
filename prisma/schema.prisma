@@ -1,10 +1,9 @@
 generator client {
   provider      = "prisma-client-js"
-  binaryTargets = ["native", "darwin-arm64", "rhel-openssl-3.0.x", "debian-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "mongodb"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -15,7 +14,7 @@ enum StorageType {
 
 // global setting
 model GlobalSettings {
-  id                    String   @id @default(auto()) @map("_id") @db.ObjectId
+id                         String    @id @default(uuid())
   siteName              String   @default("Website Name")
   siteUrl               String   @default("https://your-domain.com")
   timezone              String   @default("Asia/Dhaka")
@@ -38,7 +37,7 @@ model GlobalSettings {
 
 // database backup
 model DatabaseBackup {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+id                         String    @id @default(uuid())
   fileName   String
   filePath   String
   fileSize   Int 
@@ -49,7 +48,7 @@ model DatabaseBackup {
 
 // users
 model User {
-  id                         String    @id @default(auto()) @map("_id") @db.ObjectId
+id                         String    @id @default(uuid())
   username                   String
   email                      String    @unique
   password                   String
@@ -90,8 +89,8 @@ enum Status {
 
 // user login devices session
 model Session {
-  id         String    @id @default(auto()) @map("_id") @db.ObjectId
-  userId     String    @db.ObjectId
+  id                         String    @id @default(uuid())
+  userId     String  
   token      String
   deviceInfo String 
   isActive   Boolean   @default(true)
@@ -107,7 +106,7 @@ model Session {
 
 // dynamic page
 model DynamicPage {
-  id          String @id @default(auto()) @map("_id") @db.ObjectId
+  id                         String    @id @default(uuid())
   name        String
   slug        String @unique
   description String
@@ -133,7 +132,7 @@ model DynamicPage {
 
 // email configuration
 model EmailConfiguration {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+id                         String    @id @default(uuid())
   emailMailer     String
   emailHost       String
   emailPort       Int
@@ -149,7 +148,7 @@ model EmailConfiguration {
 
 // contact information
 model ContactInformation {
-  id                    String   @id @default(auto()) @map("_id") @db.ObjectId
+ id                         String    @id @default(uuid())
   email                 String
   email2                String?
   phone                 String
@@ -165,7 +164,7 @@ model ContactInformation {
 
 // tracking ids
 model TrackingIds {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id                         String    @id @default(uuid())
   gtmId     String
   gaId      String
   fbId      String
@@ -175,7 +174,7 @@ model TrackingIds {
 
 // social network
 model SocialNetwork {
-  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+id                         String    @id @default(uuid())
   facebookLink   String?
   twitterLink    String?
   linkedinLink   String?
@@ -197,7 +196,7 @@ model SocialNetwork {
 
 // site configuration
 model SiteConfiguration {
-  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  id                         String    @id @default(uuid())
   name             String
   shortDescription String
   longDescription  String?

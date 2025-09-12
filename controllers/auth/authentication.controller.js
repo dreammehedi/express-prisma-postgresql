@@ -126,202 +126,9 @@ export const registerUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Register Error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "An error occurred during registration.",
-    });
-  }
-};
-
-export const registerAdmin = async (req, res) => {
-  try {
-    const { email, username, password } = req.body;
-
-    const missingFields = [];
-    if (!email) missingFields.push("Email");
-    if (!username) missingFields.push("Username");
-    if (!password) missingFields.push("Password");
-
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `${missingFields.join(", ")} field(s) are required.`,
-      });
-    }
-
-    if (password.length < 8) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must be at least 8 characters long.",
-      });
-    }
-
-    // Check for existing user
-    const existingUser = await prisma.user.findFirst({
-      where: {
-        OR: [{ email }],
-      },
-    });
-
-    if (existingUser) {
-      return res.status(400).json({
-        success: false,
-        message: "User already registered with this email or username.",
-      });
-    }
-
-    const hashedPassword = bcrypt.hashSync(password, bcrypt.genSaltSync(10));
-
-    const newUser = await prisma.user.create({
-      data: {
-        email,
-        username,
-        password: hashedPassword,
-        role: "admin",
-        isAdmin: true,
-        status: "active",
-        avatar: "",
-        avatarPublicId: "",
-        resetCode: "",
-        resetCodeExpiration: new Date(),
-      },
-    });
-
-    const deviceInfo = `${req.headers["user-agent"]} | IP: ${req.ip}`;
-    const expiresAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
-
-    // Step 1: Create session
-    const session = await prisma.session.create({
-      data: {
-        userId: newUser.id,
-        token: "temp",
-        deviceInfo,
-        expiresAt,
-      },
-    });
-
-    // Step 2: Generate JWT with session ID
-    const token = jwt.sign(
-      {
-        userId: newUser.id,
-        email: newUser.email,
-        sessionId: session.id,
-        token: newUser.token,
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: "3d" }
-    );
-
-    // Step 3: Update session with token
-    await prisma.session.update({
-      where: { id: session.id },
-      data: { token },
-    });
-    await sendEmail({
-      to: newUser.email,
-      subject: "Your Admin Account Has Been Created",
-      html: `
-    <h2>Welcome to Ultra E-commerce!</h2>
-    <p>Your admin account has been successfully created.</p>
-    <p><strong>Email:</strong> ${newUser.email}</p>
-    <p><strong>Password:</strong> ${password}</p>
-    <p>Please keep this information secure and consider changing your password after first login.</p>
-  `,
-    });
-
-    res.status(201).json({
-      success: true,
-      message: "Admin registered successfully.",
-      payload: {
-        _id: newUser.id,
-        email: newUser.email,
-        username: newUser.username,
-        role: newUser.role,
-        status: newUser.status,
-        token,
-        createdAt: newUser.createdAt,
-        isTwoFactorEnabled: newUser.isTwoFactorEnabled,
-      },
-    });
-  } catch (error) {
-    console.error("Register Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "An error occurred during registration.",
-    });
-  }
-};
-
-export const deleteAdmin = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // 1. Only super_admin can delete admins
-    if (req.role !== "super_admin") {
-      return res.status(403).json({
-        success: false,
-        message: "Only super admins can delete admin accounts.",
-      });
-    }
-
-    // 2. Prevent deleting own account
-    if (req.user?.id === id) {
-      return res.status(403).json({
-        success: false,
-        message: "You cannot delete your own super admin account.",
-      });
-    }
-
-    // 3. Find target user
-    const targetUser = await prisma.user.findUnique({ where: { id } });
-
-    if (!targetUser) {
-      return res.status(404).json({
-        success: false,
-        message: "Admin not found.",
-      });
-    }
-
-    if (!targetUser.isAdmin || targetUser.role === "super_admin") {
-      return res.status(400).json({
-        success: false,
-        message: "You can only delete admin accounts, not super admins.",
-      });
-    }
-
-    // 4. Delete related records
-    await Promise.all([prisma.session.deleteMany({ where: { userId: id } })]);
-
-    // 5. Delete the user
-    await prisma.user.delete({ where: { id } });
-
-    // 6. Send email notification
-    await sendEmail({
-      to: targetUser.email,
-      subject: "Your Admin Account Has Been Deleted",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
-          <h2 style="color: #d9534f;">Account Deleted</h2>
-          <p>Dear ${targetUser.username || "Admin"},</p>
-          <p>Your admin account for <strong>Ultra E-commerce</strong> has been <strong>deleted</strong> by a super admin.</p>
-          <p>If you believe this was a mistake, please contact our support team immediately.</p>
-          <br />
-          <p>Best regards,<br/>The Ultra E-commerce Team</p>
-        </div>
-      `,
-    });
-
-    // 7. Response
-    res.status(200).json({
-      success: true,
-      message: "Admin account and all related data deleted successfully.",
-    });
-  } catch (error) {
-    console.error("Delete Admin Error:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message || "An error occurred while deleting admin.",
     });
   }
 };
@@ -416,7 +223,6 @@ export const loginUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Login Error:", error);
     res
       .status(500)
       .json({ message: error.message || "Server error during login." });
@@ -458,7 +264,6 @@ export const logout = async (req, res) => {
       message: "Logged out successfully and session deleted.",
     });
   } catch (error) {
-    console.error("Logout Error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Logout failed.",
@@ -581,7 +386,6 @@ export const forgotPassword = async (req, res) => {
       message: "Reset code sent to your email.",
     });
   } catch (error) {
-    console.error("Forgot Password Error:", error);
     return res.status(500).json({
       success: false,
       message:
@@ -664,7 +468,6 @@ export const resetPassword = async (req, res) => {
       message: "Password reset successfully.",
     });
   } catch (error) {
-    console.error("Reset password error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "An error occurred during password reset.",
@@ -882,7 +685,6 @@ export const googleLogin = async (req, res) => {
     const frontendURL = `${process.env.FRONTEND_LINK}/auth/google/callback?token=${token}&role=${role}&id=${id}&username=${username}&status=${status}&email=${email}`;
     res.redirect(frontendURL);
   } catch (error) {
-    console.error("Google login error:", error);
     res.redirect(`${process.env.FRONTEND_LINK}/login?error=login_failed`);
   }
 };
@@ -976,7 +778,6 @@ export const verify2FA = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("2FA Verify Error:", error);
     res.status(500).json({
       success: false,
       message: error.message || "Server error during 2FA verification.",
@@ -1081,7 +882,6 @@ export const getUserProfile = async (req, res, next) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching user profile:", error);
     res.status(500).json({
       success: false,
       message:
@@ -1177,7 +977,8 @@ export const toggleUserStatus = async (req, res) => {
       user: updatedUser,
     });
   } catch (err) {
-    console.error("Status update error:", err);
-    return res.status(500).json({ error: "Something went wrong!" });
+    return res
+      .status(500)
+      .json({ error: err?.message || "Something went wrong!" });
   }
 };

@@ -75,7 +75,6 @@ const handleUpload = async (req, res) => {
 
     res.status(200).json({ success: true, file });
   } catch (err) {
-    console.error("File upload error:", err);
     res.status(500).json({ message: "File upload failed", error: err.message });
   }
 };

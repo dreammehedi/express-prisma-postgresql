@@ -5,8 +5,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "build": "npm i & npx prisma generate & npx prisma db push",
-    "dbpush": "npx prisma db push"
+    "build": "npm i && npx prisma generate && npx prisma db push",
+    "dbpush": "npx prisma db push",
+    "migrate": "npx prisma migrate dev"
   },
   "keywords": [],
   "author": "Md. Mehedi Hassan",

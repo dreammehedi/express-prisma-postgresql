@@ -12,7 +12,6 @@ export const getDatabaseBackup = async (req, res) => {
   try {
     const { skip = 0, limit = 10 } = req.pagination || {};
     const search = req.query.search || "";
-    const status = req.query.status || undefined;
 
     const where = {
       AND: [
@@ -72,7 +71,6 @@ export const generateDatabaseBackup = async (req, res) => {
       .status(200)
       .json({ success: true, message: "Backup created", data: backup });
   } catch (error) {
-    console.error("Backup failed:", error);
     res
       .status(500)
       .json({ success: false, message: "Backup failed", error: error.message });
@@ -121,7 +119,6 @@ export const permanentDeleteDatabaseBackup = async (req, res) => {
       .status(200)
       .json({ success: true, message: "Backups deleted successfully" });
   } catch (error) {
-    console.error("Delete failed:", error);
     return res
       .status(500)
       .json({ success: false, message: "Delete failed", error });
@@ -192,7 +189,6 @@ export const databaseBackup = async (req, res) => {
       zip: settings.enableCompression ? zipFilePath : backupFolder,
     });
   } catch (err) {
-    console.error("❌ Backup error:", err);
     return res
       .status(500)
       .json({ success: false, message: "Backup failed", error: err });

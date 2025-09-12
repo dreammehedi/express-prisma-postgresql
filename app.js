@@ -124,5 +124,4 @@ app.use("/api", EmailConfigurationRouter);
 app.use("/api", DatabaseBackupRouter);
 app.use("/api", DynamicPageRouter);
 
-// reminderEmailJob();
 export default app;

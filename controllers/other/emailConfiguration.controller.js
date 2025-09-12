@@ -3,15 +3,30 @@ import encrypt from "../../helper/encrypt.js";
 import { prisma } from "../../lib/prisma.js";
 
 // GET all configurations
-export const getEmailConfiguration = async (req, res) => {
+export const getEmailConfiguration = async (req, res, next) => {
   try {
-    const emailConfigurations = await prisma.emailConfiguration.findMany();
+    let emailConfigurations = await prisma.emailConfiguration.findMany();
 
-    res.status(200).json({
-      success: true,
-      message: "Email configuration data was successfully retrieved.",
-      payload: emailConfigurations,
-    });
+    if (emailConfigurations.length === 0) {
+      emailConfigurations = [
+        await prisma.emailConfiguration.create({
+          data: {
+            emailMailer: "",
+            emailHost: "",
+            emailPort: 0,
+            emailUserName: "",
+            emailPassword: "",
+            emailEncryption: "",
+            emailFromName: "",
+            emailAddress: "",
+          },
+        }),
+      ];
+    }
+
+    req.emailConfigurations = emailConfigurations;
+
+    res.status(200).json({ success: true, data: emailConfigurations });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
