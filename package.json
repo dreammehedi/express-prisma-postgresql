@@ -1,0 +1,43 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "build": "npm i & npx prisma generate & npx prisma db push",
+    "dbpush": "npx prisma db push"
+  },
+  "keywords": [],
+  "author": "Md. Mehedi Hassan",
+  "license": "ISC",
+  "type": "module",
+  "description": "express, prisma, postgresql server project",
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "archiver": "^7.0.1",
+    "bcryptjs": "^3.0.2",
+    "cloudinary": "^1.41.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.5.0",
+    "ejs": "^3.1.10",
+    "express": "^4.18.2",
+    "express-session": "^1.18.1",
+    "jsonwebtoken": "^9.0.2",
+    "moment-timezone": "^0.6.0",
+    "multer": "^2.0.1",
+    "multer-storage-cloudinary": "^4.0.0",
+    "node-cron": "^4.1.0",
+    "nodemailer": "^7.0.3",
+    "nodemon": "^3.1.10",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "prisma": "^6.6.0",
+    "slugify": "^1.6.6",
+    "speakeasy": "^2.0.0",
+    "util": "^0.12.5"
+  }
+}
