@@ -873,8 +873,6 @@ export const getUserProfile = async (req, res, next) => {
   const { email } = req.params; // ✅ destructure email properly
   const token = req.token;
 
-  console.log(token, "token");
-
   if (!email) {
     return res.status(400).json({ message: "Email not found." });
   }

@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import passport from "./config/passport.config.js";
 import { addFullUrlMiddleware } from "./middleware/addFullUrlMiddleware.js";
 import { attachGlobalSettings } from "./middleware/attachGlobalSettings.js";
+import { checkHeaders } from "./middleware/checkHeaders.js";
 import { formatJsonResponse } from "./middleware/formatJsonResponse.js";
 import {
   AuthenticationRouter,
@@ -100,6 +101,7 @@ app.use(
 );
 app.use(passport.initialize());
 app.use(passport.session());
+app.use(checkHeaders);
 app.use(attachGlobalSettings);
 app.use(formatJsonResponse);
 
